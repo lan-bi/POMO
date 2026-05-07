@@ -62,6 +62,20 @@ class CVRPTrainer:
         # utility
         self.time_estimator = TimeEstimator()
 
+        # advantage function (injectable for EoH / AHD)
+        self.advantage_fn = self._default_advantage
+
+        # EMA tracking for real-time training features
+        self.loss_ema = None
+        self.reward_ema = None
+        self.ema_decay = 0.99
+
+    @staticmethod
+    def _default_advantage(reward, load, at_the_depot, finished,
+                           loss_ema, reward_ema, epoch):
+        """Standard POMO advantage: batch-internal baseline."""
+        return reward - reward.float().mean(dim=1, keepdims=True)
+
     def run(self):
         self.time_estimator.reset(self.start_epoch)
         for epoch in range(self.start_epoch, self.trainer_params['epochs']+1):
@@ -134,7 +148,7 @@ class CVRPTrainer:
             remaining = train_num_episode - episode
             batch_size = min(self.trainer_params['train_batch_size'], remaining)
 
-            avg_score, avg_loss = self._train_one_batch(batch_size)
+            avg_score, avg_loss = self._train_one_batch(batch_size, epoch)
             score_AM.update(avg_score, batch_size)
             loss_AM.update(avg_loss, batch_size)
 
@@ -155,7 +169,7 @@ class CVRPTrainer:
 
         return score_AM.avg, loss_AM.avg
 
-    def _train_one_batch(self, batch_size):
+    def _train_one_batch(self, batch_size, epoch=None):
 
         # Prep
         ###############################################
@@ -177,15 +191,37 @@ class CVRPTrainer:
             state, reward, done = self.env.step(selected)
             prob_list = torch.cat((prob_list, prob[:, :, None]), dim=2)
 
+        # EMA update for real-time training features
+        ###############################################
+        if self.loss_ema is None:
+            self.loss_ema = 0.0
+            self.reward_ema = reward.mean().item()
+        else:
+            self.reward_ema = (self.ema_decay * self.reward_ema
+                               + (1 - self.ema_decay) * reward.mean().item())
+
         # Loss
         ###############################################
-        advantage = reward - reward.float().mean(dim=1, keepdims=True)
+        advantage = self.advantage_fn(
+            reward,
+            self.env.load,
+            self.env.at_the_depot,
+            self.env.finished,
+            self.loss_ema,
+            self.reward_ema,
+            epoch if epoch is not None else 0,
+        )
         # shape: (batch, pomo)
         log_prob = prob_list.log().sum(dim=2)
         # size = (batch, pomo)
         loss = -advantage * log_prob  # Minus Sign: To Increase REWARD
         # shape: (batch, pomo)
         loss_mean = loss.mean()
+
+        # Update loss EMA (after loss is computed)
+        if self.loss_ema is not None:
+            self.loss_ema = (self.ema_decay * self.loss_ema
+                             + (1 - self.ema_decay) * loss_mean.item())
 
         # Score
         ###############################################
