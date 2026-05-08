@@ -93,12 +93,17 @@ class CVRPTrainer:
                 and len(self.score_history) >= min_epochs)
 
     def save_temp_checkpoint(self, path: str) -> None:
-        """Save current model and optimizer state to *path* for EoH evaluation."""
+        """Save model + optimizer + EoH state to *path*."""
         checkpoint_dict = {
             'epoch': len(self.score_history),
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
+            # EoH / AHD state for resume
+            'score_history': self.score_history,
+            'loss_history': self.loss_history,
+            'plateau_counter': self.plateau_counter,
+            'best_score': self.best_score,
         }
         torch.save(checkpoint_dict, path)
 
@@ -106,6 +111,13 @@ class CVRPTrainer:
         """Replace the current advantage function and log the switch."""
         self.logger.info('Switching advantage function: %s', new_fn.__name__)
         self.advantage_fn = new_fn
+
+    def restore_eoh_state(self, checkpoint: dict) -> None:
+        """Restore EoH tracking state from a checkpoint dict."""
+        self.score_history = checkpoint.get('score_history', [])
+        self.loss_history = checkpoint.get('loss_history', [])
+        self.plateau_counter = checkpoint.get('plateau_counter', 0)
+        self.best_score = checkpoint.get('best_score', float('-inf'))
 
     def run(self):
         self.time_estimator.reset(self.start_epoch)
