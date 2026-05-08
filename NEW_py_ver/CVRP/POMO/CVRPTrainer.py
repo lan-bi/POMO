@@ -70,11 +70,42 @@ class CVRPTrainer:
         self.reward_ema = None
         self.ema_decay = 0.99
 
+        # online EoH / AHD integration
+        self.score_history: list[float] = []
+        self.loss_history: list[float] = []
+        self.plateau_counter: int = 0
+        self.best_score: float = float('-inf')
+
     @staticmethod
     def _default_advantage(reward, load, at_the_depot, finished,
                            loss_ema, reward_ema, epoch):
         """Standard POMO advantage: batch-internal baseline."""
         return reward - reward.float().mean(dim=1, keepdims=True)
+
+    # ------------------------------------------------------------------
+    #  Online EoH / AHD integration helpers
+    # ------------------------------------------------------------------
+
+    def detect_plateau(self, min_epochs: int = 20,
+                       min_score_gap: float = 0.001) -> bool:
+        """True if the best score hasn't improved for *min_epochs* epochs."""
+        return (self.plateau_counter >= min_epochs
+                and len(self.score_history) >= min_epochs)
+
+    def save_temp_checkpoint(self, path: str) -> None:
+        """Save current model and optimizer state to *path* for EoH evaluation."""
+        checkpoint_dict = {
+            'epoch': len(self.score_history),
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
+        }
+        torch.save(checkpoint_dict, path)
+
+    def switch_advantage(self, new_fn: callable) -> None:
+        """Replace the current advantage function and log the switch."""
+        self.logger.info('Switching advantage function: %s', new_fn.__name__)
+        self.advantage_fn = new_fn
 
     def run(self):
         self.time_estimator.reset(self.start_epoch)
@@ -88,6 +119,15 @@ class CVRPTrainer:
             train_score, train_loss = self._train_one_epoch(epoch)
             self.result_log.append('train_score', epoch, train_score)
             self.result_log.append('train_loss', epoch, train_loss)
+
+            # update history for online EoH / AHD
+            self.score_history.append(train_score)
+            self.loss_history.append(train_loss)
+            if train_score > self.best_score:
+                self.best_score = train_score
+                self.plateau_counter = 0
+            else:
+                self.plateau_counter += 1
 
             ############################
             # Logs & Checkpoint
