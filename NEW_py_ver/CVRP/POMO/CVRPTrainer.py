@@ -135,7 +135,8 @@ class CVRPTrainer:
             # update history for online EoH / AHD
             self.score_history.append(train_score)
             self.loss_history.append(train_loss)
-            if train_score > self.best_score:
+            # score = route distance (lower is better)
+            if train_score < self.best_score:
                 self.best_score = train_score
                 self.plateau_counter = 0
             else:
