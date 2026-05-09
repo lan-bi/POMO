@@ -99,11 +99,13 @@ class CVRPTrainer:
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
-            # EoH / AHD state for resume
+            # EoH / AHD state for resume + evaluation
             'score_history': self.score_history,
             'loss_history': self.loss_history,
             'plateau_counter': self.plateau_counter,
             'best_score': self.best_score,
+            'loss_ema': self.loss_ema,
+            'reward_ema': self.reward_ema,
         }
         torch.save(checkpoint_dict, path)
 
@@ -118,6 +120,8 @@ class CVRPTrainer:
         self.loss_history = checkpoint.get('loss_history', [])
         self.plateau_counter = checkpoint.get('plateau_counter', 0)
         self.best_score = checkpoint.get('best_score', float('inf'))
+        self.loss_ema = checkpoint.get('loss_ema', None)
+        self.reward_ema = checkpoint.get('reward_ema', None)
 
     def run(self):
         self.time_estimator.reset(self.start_epoch)
