@@ -74,7 +74,7 @@ class CVRPTrainer:
         self.score_history: list[float] = []
         self.loss_history: list[float] = []
         self.plateau_counter: int = 0
-        self.best_score: float = float('-inf')
+        self.best_score: float = float('inf')
 
     @staticmethod
     def _default_advantage(reward, load, at_the_depot, finished,
@@ -117,7 +117,7 @@ class CVRPTrainer:
         self.score_history = checkpoint.get('score_history', [])
         self.loss_history = checkpoint.get('loss_history', [])
         self.plateau_counter = checkpoint.get('plateau_counter', 0)
-        self.best_score = checkpoint.get('best_score', float('-inf'))
+        self.best_score = checkpoint.get('best_score', float('inf'))
 
     def run(self):
         self.time_estimator.reset(self.start_epoch)
